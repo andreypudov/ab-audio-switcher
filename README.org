@@ -47,6 +47,22 @@ Install pre-commit hooks:
 pre-commit install
 #+end_src
 
+* Optional: Convert audio sources to WAV using FFmpeg
+If your original files are in formats like MP3 or FLAC, convert them to WAV for consistent decoding.
+
+Example input files:
+- =source_a.mp3=
+- =source_b.flac=
+
+Convert them:
+
+#+begin_src bash
+ffmpeg -i source_a.mp3 A.wav
+ffmpeg -i source_b.flac B.wav
+#+end_src
+
+This produces =A.wav= and =B.wav= for use with the switcher.
+
 * Usage
 Place two audio files in the project directory:
 
