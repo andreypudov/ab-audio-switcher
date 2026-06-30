@@ -1,0 +1,74 @@
+#+TITLE: ab-audio-switcher
+#+AUTHOR: Andrey Pudov
+#+OPTIONS: toc:t
+
+* Overview
+ab-audio-switcher is a tiny cross-platform tool for instant A/B audio comparison with a single hotkey.
+It loads two audio tracks into memory, plays them through a real-time callback, and switches between them instantly—ideal for critical listening, codec evaluation, mix comparison, and headphone testing.
+
+
+* Features
+- Instant A/B switching with one hotkey
+- Gapless playback using a continuous audio callback
+- Raw PCM pipeline for transparent audio comparison
+- Works on macOS, Linux, and Windows
+- Minimal dependencies and simple architecture
+
+* Installation
+Clone the repository:
+
+#+begin_src bash
+git clone https://github.com/andreypudov/ab-audio-switcher.git
+cd ab-audio-switcher
+#+end_src
+
+Create and activate a virtual environment:
+
+#+begin_src bash
+python3 -m venv .venv
+source .venv/bin/activate
+#+end_src
+
+Upgrade pip:
+
+#+begin_src bash
+python -m pip install --upgrade pip
+#+end_src
+
+Install dependencies:
+
+#+begin_src bash
+pip install -r requirements.txt
+#+end_src
+
+Install pre-commit hooks:
+
+#+begin_src bash
+pre-commit install
+#+end_src
+
+* Usage
+Place two audio files in the project directory:
+
+- =A.wav=
+- =B.wav=
+
+Run the switcher:
+
+#+begin_src bash
+python ab_switcher.py
+#+end_src
+
+Press =SPACE= to toggle between Track A and Track B.
+
+* How It Works
+The program:
+1. Decodes both audio files into raw PCM arrays.
+2. Starts a continuous audio callback using =sounddevice=.
+3. Maintains an index pointer into the active track.
+4. Switches the active buffer instantly when the hotkey is pressed.
+
+This avoids restarting the audio stream and ensures seamless switching.
+
+* License
+Apache License 2.0
