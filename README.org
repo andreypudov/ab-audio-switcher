@@ -47,35 +47,15 @@ Install pre-commit hooks:
 pre-commit install
 #+end_src
 
-* Optional: Convert audio sources to WAV using FFmpeg
-If your original files are in formats like MP3 or FLAC, convert them to WAV for consistent decoding.
-
-Example input files:
-- =source_a.mp3=
-- =source_b.flac=
-
-Convert them:
-
-#+begin_src bash
-ffmpeg -i source_a.mp3 A.wav
-ffmpeg -i source_b.flac B.wav
-#+end_src
-
-This produces =A.wav= and =B.wav= for use with the switcher.
-
 * Usage
-Place two audio files in the project directory:
-
-- =A.wav=
-- =B.wav=
-
 Run the switcher:
 
 #+begin_src bash
-python ab_switcher.py
+python ab_switcher.py A.wav B.wav
 #+end_src
 
 Press =SPACE= to toggle between Track A and Track B.
+Press =ESC= to exit the program.
 
 * How It Works
 The program:
@@ -85,64 +65,3 @@ The program:
 4. Switches the active buffer instantly when the hotkey is pressed.
 
 This avoids restarting the audio stream and ensures seamless switching.
-
-* Audio Preparation Steps for Codec Comparison
-
-To perform a fair FLAC vs MP3 comparison, both files must be decoded into the same
-uncompressed PCM format. Follow these steps:
-
-1. Convert the original FLAC into WAV (reference PCM):
-
-#+begin_src bash
-ffmpeg -i source.flac -c:a pcm_f32le A.wav
-#+end_src
-
-2. Convert the original FLAC into MP3 at a chosen bitrate (example: 146 kbps):
-
-#+begin_src bash
-ffmpeg -i source.flac -b:a 146k source.mp3
-#+end_src
-
-3. Decode the MP3 back into WAV (lossy PCM):
-
-#+begin_src bash
-ffmpeg -i source.mp3 -c:a pcm_f32le B.wav
-#+end_src
-
-You now have:
-
-- =A.wav= — decoded FLAC (reference)
-- =B.wav= — decoded MP3 (lossy version)
-
-Both WAV files share identical format (PCM float, 44.1 kHz, stereo), making them
-ideal for accurate A/B switching and analysis.
-
-* Streaming Platform Audio Bitrates (Reference)
-
-This section provides real‑world audio bitrates used by major streaming platforms.
-Useful for comparing your MP3 test bitrates (e.g., 146 kbps) against what listeners typically hear online.
-
-| Platform           | Codec | Quality Tier       | Bitrate / Resolution                 | Notes                       |
-|--------------------+-------+--------------------+--------------------------------------+-----------------------------|
-| Spotify            | AAC   | Standard           | ~160 kbps AAC                        | Common default quality.     |
-|                    | AAC   | High               | ~320 kbps AAC                        | Highest lossy tier.         |
-|                    | FLAC  | Lossless           | 16‑bit/44.1 kHz (~1411 kbps)         | CD‑quality lossless.        |
-| Apple Music        | AAC   | Standard           | 256 kbps AAC                         | Long‑standing Apple format. |
-|                    | ALAC  | Lossless           | 16‑bit/44.1 kHz (~1411 kbps)         | CD‑quality.                 |
-|                    | ALAC  | Hi‑Res             | 24‑bit/48–192 kHz (up to ~9216 kbps) | Hi‑Res Lossless.            |
-| YouTube / YT Music | AAC   | Standard           | 128–160 kbps AAC                     | Typical streaming range.    |
-|                    | AAC   | High               | ~256 kbps AAC                        | Higher quality tier.        |
-| Tidal              | AAC   | Standard           | 320 kbps AAC                         | Lossy tier.                 |
-|                    | FLAC  | HiFi               | 16‑bit/44.1 kHz (~1411 kbps)         | CD‑quality.                 |
-|                    | FLAC  | Max (Hi‑Res)       | 24‑bit/192 kHz (up to ~9216 kbps)    | Hi‑Res tier.                |
-| Amazon Music       | AAC   | Standard           | ~256 kbps AAC                        | Lossy tier.                 |
-|                    | FLAC  | HD                 | 16‑bit/44.1 kHz (~1411 kbps)         | CD‑quality.                 |
-|                    | FLAC  | Ultra HD           | 24‑bit/48–192 kHz (up to ~9216 kbps) | Hi‑Res.                     |
-| SoundCloud         | AAC   | Standard           | 128–256 kbps AAC                     | Varies by upload.           |
-|                    | FLAC  | Lossless (uploads) | 44.1 kHz FLAC                        | Accepts lossless uploads.   |
-
-**Summary:**
-Most lossy streaming uses **128–320 kbps AAC**, while lossless tiers use **FLAC/ALAC at 1411 kbps** (CD‑quality) or **Hi‑Res up to ~9 Mbps**.
-
-* License
-Apache License 2.0
