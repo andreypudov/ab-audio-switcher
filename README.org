@@ -57,6 +57,11 @@ python ab_switcher.py A.wav B.wav
 Press =SPACE= to toggle between Track A and Track B.
 Press =ESC= to exit the program.
 
+* Useful Scripts
+- =scripts/ab_convert.sh= converts an input audio file to a destination audio file at a requested bitrate.
+- =scripts/ab_spectrogram.sh= generates a high-resolution spectrogram image from a source audio file.
+- =scripts/ab_diff.sh= creates a difference spectrogram image from two source audio files.
+
 * How It Works
 The program:
 1. Decodes both audio files into raw PCM arrays.
