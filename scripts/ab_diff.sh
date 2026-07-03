@@ -11,6 +11,7 @@ fi
 SOURCE1="$1"
 SOURCE2="$2"
 DESTINATION="$3"
+SPECTROGRAM_SIZE="3840x2160"
 
 # check source files exist
 for source in "$SOURCE1" "$SOURCE2"; do
@@ -20,20 +21,29 @@ for source in "$SOURCE1" "$SOURCE2"; do
     fi
 done
 
-TMP_AUDIO="${TMPDIR:-/tmp}/ab-compare-$$.wav"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ab-compare.XXXXXX")"
+TMP_SPEC1="$TMP_DIR/source-a.png"
+TMP_SPEC2="$TMP_DIR/source-b.png"
 cleanup() {
-    rm -f "$TMP_AUDIO"
+    rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT HUP INT TERM
 
-# generate a high-resolution comparison spectrogram with ffmpeg
-echo "Generating comparison spectrogram '$DESTINATION' from '$SOURCE1' and '$SOURCE2'..."
-if ! ffmpeg -y -loglevel error -i "$SOURCE1" -i "$SOURCE2" -filter_complex "[0:a][1:a]amerge=inputs=2" -vn -f wav "$TMP_AUDIO" >/dev/null; then
-    echo "Error: failed to create comparison audio." >&2
+# generate separate high-resolution spectrograms and combine them as a difference image
+echo "Generating spectrogram from '$(basename "$SOURCE1")'..."
+if ! ffmpeg -y -loglevel error -i "$SOURCE1" -frames:v 1 -lavfi "showspectrumpic=s=$SPECTROGRAM_SIZE:color=rainbow" "$TMP_SPEC1" >/dev/null; then
+    echo "Error: failed to create spectrogram from '$(basename "$SOURCE1")'." >&2
     exit 1
 fi
 
-if ! ffmpeg -y -loglevel error -i "$TMP_AUDIO" -frames:v 1 -lavfi "showspectrumpic=s=3840x2160:color=rainbow" "$DESTINATION" >/dev/null; then
+echo "Generating spectrogram from '$(basename "$SOURCE2")'..."
+if ! ffmpeg -y -loglevel error -i "$SOURCE2" -frames:v 1 -lavfi "showspectrumpic=s=$SPECTROGRAM_SIZE:color=rainbow" "$TMP_SPEC2" >/dev/null; then
+    echo "Error: failed to create spectrogram from '$(basename "$SOURCE2")'." >&2
+    exit 1
+fi
+
+echo "Generating difference spectrogram '$DESTINATION' from '$(basename "$SOURCE1")' and '$(basename "$SOURCE2")'..."
+if ! ffmpeg -y -loglevel error -i "$TMP_SPEC1" -i "$TMP_SPEC2" -filter_complex "[0:v][1:v]blend=all_mode=difference" -frames:v 1 "$DESTINATION" >/dev/null; then
     echo "Error: failed to create spectrogram '$DESTINATION'." >&2
     exit 1
 fi
