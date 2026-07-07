@@ -5,6 +5,7 @@ import sounddevice as sd
 from pynput import keyboard
 
 from .audio_loader import load_audio_ffmpeg
+from .terminal_utils import clear_and_print, disable_echo, restore_terminal, flush_input
 
 
 def _build_looped_chunk(
@@ -119,7 +120,7 @@ def compare_audio_files(
     if invalid_files:
         raise FileNotFoundError(f"Files not found: {', '.join(invalid_files)}")
 
-    print("Loading audio…")
+    print("Loading audio...")
     tracks = []
     for path in files:
         try:
@@ -127,15 +128,15 @@ def compare_audio_files(
             track = load_audio_ffmpeg(path, samplerate=samplerate, channels=channels)
             tracks.append(track)
             duration = track.shape[0] / samplerate
-            print(f" ✓ ({duration:.2f}s)")
+            print(f" [OK] ({duration:.2f}s)", flush=True)
         except FileNotFoundError as e:
-            print(" ✗")
+            print(" [ERR]", flush=True)
             raise FileNotFoundError(f"Cannot read {path}: {e}") from e
         except RuntimeError as e:
-            print(" ✗")
+            print(" [ERR]", flush=True)
             raise RuntimeError(f"Failed to decode {path}: {e}") from e
         except ValueError as e:
-            print(" ✗")
+            print(" [ERR]", flush=True)
             raise ValueError(f"Invalid audio data in {path}: {e}") from e
 
     # Validate all tracks are compatible
@@ -171,11 +172,14 @@ def compare_audio_files(
         try:
             if key == keyboard.Key.space:
                 current_track = (current_track + 1) % len(tracks)
-                print(f"Now playing: {track_names[current_track]}")
+                # Update status in-place (no extra newline)
+                clear_and_print(
+                    f"Now playing: {track_names[current_track]}", newline=False
+                )
                 return
 
             if key == keyboard.Key.esc:
-                print("Exiting on Escape")
+                clear_and_print("Exiting on Escape", newline=True)
                 stop_requested = True
                 listener.stop()
                 return False
@@ -183,12 +187,29 @@ def compare_audio_files(
             # Handle special key cases where attribute lookup may fail
             pass
 
-    listener = keyboard.Listener(on_press=on_press)
+    # Create the listener without suppression. Suppression requires
+    # accessibility permissions on macOS and can make the listener fail to
+    # start; instead disable local terminal echo below to avoid the ESC byte
+    # being displayed in the shell.
+    listener = keyboard.Listener(on_press=on_press, suppress=False)
 
-    print(f"Now playing: {track_names[current_track]}")
-    print("Press SPACE to switch tracks, ESC to exit\n")
+    # Print the instructions once, then show a status line that will be updated in-place
+    print("Press SPACE to switch tracks, ESC to exit", flush=True)
+    print("", flush=True)
+    clear_and_print(f"Now playing: {track_names[current_track]}", newline=False)
+
+    # Terminal state helpers for suppressing local echo of pressed keys
+    orig_term_attrs = None
+    terminal_fd = None
 
     try:
+        # Before starting the listener, disable local terminal echo so
+        # characters like ESC aren't echoed by the shell when the user
+        # presses keys. This avoids writing escape bytes like `^[` to the
+        # terminal even if the global listener can't suppress events.
+        # Try to disable local terminal echo; returns (fd, orig_attrs) or (None, None)
+        terminal_fd, orig_term_attrs = disable_echo()
+
         with sd.OutputStream(
             samplerate=samplerate,
             channels=channels,
@@ -196,13 +217,36 @@ def compare_audio_files(
             dtype="float32",
         ):
             listener.start()
+            # Emit a newline immediately after starting the listener so any
+            # external messages (e.g. macOS accessibility warnings) appear on
+            # their own line instead of being appended to the status line.
+            try:
+                print("", flush=True)
+            except Exception:
+                pass
             listener.join()
     except KeyboardInterrupt:
-        print("Exiting on Ctrl-C")
+        clear_and_print("Exiting on Ctrl-C", newline=True)
     except Exception as e:
         print(f"Playback error: {e}", file=os.sys.stderr)
         return 1
     finally:
-        listener.stop()
+        try:
+            listener.stop()
+        except Exception:
+            pass
+
+        # Restore terminal attributes if they were changed
+        try:
+            restore_terminal(terminal_fd, orig_term_attrs)
+        except Exception:
+            pass
+
+        # Flush any pending input (for example the ESC byte) so the shell
+        # doesn't display leftover control characters after this program exits.
+        try:
+            flush_input()
+        except Exception:
+            pass
 
     return 0
