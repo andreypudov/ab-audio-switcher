@@ -18,6 +18,12 @@ if [ ! -f "$SOURCE" ]; then
     exit 1
 fi
 
+# check bitrate ends with k or K
+if [ "${BITRATE%k}" = "$BITRATE" ] && [ "${BITRATE%K}" = "$BITRATE" ]; then
+    echo "Error: bitrate must include units, e.g. 64k, 128k, 320k" >&2
+    exit 1
+fi
+
 # convert source to destination with requested bitrate
 echo "Converting '$SOURCE' to '$DESTINATION' at bitrate $BITRATE..."
 if ! ffmpeg -y -loglevel error -i "$SOURCE" -b:a "$BITRATE" "$DESTINATION" >/dev/null; then
