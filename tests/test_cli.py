@@ -7,6 +7,8 @@ from ab_switcher import __version__, build_parser
 from switcher.audio_compare import (
     _build_looped_chunk,
     _get_playback_chunk,
+    _seek_playback_position,
+    _shift_track,
     _validate_tracks,
 )
 from switcher.audio_loader import _check_ffmpeg_available
@@ -54,6 +56,35 @@ class AudioChunkTests(unittest.TestCase):
         expected = np.array([[50.0, 60.0], [10.0, 20.0]], dtype=np.float32)
         np.testing.assert_array_equal(chunk, expected)
         self.assertEqual(next_position, 1)
+
+
+class PlaybackControlTests(unittest.TestCase):
+    def test_seek_playback_position_moves_by_five_seconds(self):
+        next_position = _seek_playback_position(
+            playback_position=10,
+            samplerate=10,
+            seconds=5,
+            loop_length=100,
+            direction=1,
+        )
+
+        self.assertEqual(next_position, 60)
+
+    def test_seek_playback_position_wraps_at_loop_boundary(self):
+        next_position = _seek_playback_position(
+            playback_position=95,
+            samplerate=10,
+            seconds=5,
+            loop_length=100,
+            direction=1,
+        )
+
+        self.assertEqual(next_position, 45)
+
+    def test_shift_track_wraps_through_playlist(self):
+        self.assertEqual(_shift_track(0, 1, 2), 1)
+        self.assertEqual(_shift_track(1, 1, 2), 0)
+        self.assertEqual(_shift_track(0, -1, 2), 1)
 
 
 class TrackValidationTests(unittest.TestCase):

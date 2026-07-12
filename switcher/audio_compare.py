@@ -8,6 +8,9 @@ from .audio_loader import load_audio_ffmpeg
 from .terminal_utils import clear_and_print, disable_echo, restore_terminal, flush_input
 
 
+SEEK_SECONDS = 3
+
+
 def _build_looped_chunk(
     track: np.ndarray, position: int, frames: int, loop_length: int
 ) -> np.ndarray:
@@ -56,6 +59,49 @@ def _get_playback_chunk(
     )
     next_position = (playback_position + frames) % loop_length
     return chunk, next_position
+
+
+def _seek_playback_position(
+    playback_position: int,
+    samplerate: int,
+    seconds: int,
+    loop_length: int,
+    direction: int,
+) -> int:
+    """Seek playback position forward or backward by a fixed number of seconds.
+
+    Args:
+        playback_position: Current playback position in samples
+        samplerate: Sample rate in Hz
+        seconds: Number of seconds to seek
+        loop_length: Length of loop in samples
+        direction: 1 for forward seek, -1 for backward seek
+
+    Returns:
+        New playback position in samples, wrapped to the current loop length
+    """
+    if loop_length <= 0:
+        return 0
+
+    seek_samples = int(seconds * samplerate)
+    return (playback_position + (direction * seek_samples)) % loop_length
+
+
+def _shift_track(current_track: int, delta: int, track_count: int) -> int:
+    """Move between tracks with wraparound.
+
+    Args:
+        current_track: Current track index
+        delta: Relative step to apply (-1 for previous, 1 for next)
+        track_count: Number of loaded tracks
+
+    Returns:
+        New track index, wrapped to the playlist length
+    """
+    if track_count <= 0:
+        return 0
+
+    return (current_track + delta) % track_count
 
 
 def _validate_tracks(tracks: list[np.ndarray], files: list[str]) -> None:
@@ -167,12 +213,44 @@ def compare_audio_files(
         outdata[:] = chunk
 
     def on_press(key):
-        nonlocal current_track, stop_requested
+        nonlocal current_track, playback_position, stop_requested
 
         try:
-            if key == keyboard.Key.space:
-                current_track = (current_track + 1) % len(tracks)
-                # Update status in-place (no extra newline)
+            if key == keyboard.Key.space or key == keyboard.Key.up:
+                current_track = _shift_track(current_track, 1, len(tracks))
+                clear_and_print(
+                    f"Now playing: {track_names[current_track]}", newline=False
+                )
+                return
+
+            if key == keyboard.Key.down:
+                current_track = _shift_track(current_track, -1, len(tracks))
+                clear_and_print(
+                    f"Now playing: {track_names[current_track]}", newline=False
+                )
+                return
+
+            if key == keyboard.Key.left:
+                playback_position = _seek_playback_position(
+                    playback_position,
+                    samplerate,
+                    seconds=SEEK_SECONDS,
+                    loop_length=loop_length,
+                    direction=-1,
+                )
+                clear_and_print(
+                    f"Now playing: {track_names[current_track]}", newline=False
+                )
+                return
+
+            if key == keyboard.Key.right:
+                playback_position = _seek_playback_position(
+                    playback_position,
+                    samplerate,
+                    seconds=SEEK_SECONDS,
+                    loop_length=loop_length,
+                    direction=1,
+                )
                 clear_and_print(
                     f"Now playing: {track_names[current_track]}", newline=False
                 )
@@ -194,7 +272,11 @@ def compare_audio_files(
     listener = keyboard.Listener(on_press=on_press, suppress=False)
 
     # Print the instructions once, then show a status line that will be updated in-place
-    print("Press SPACE to switch tracks, ESC to exit", flush=True)
+    print(
+        "Press SPACE or ↑ to switch to the next track, ↓ to switch to the previous track, "
+        f"←/→ to seek {SEEK_SECONDS} seconds, ESC to exit",
+        flush=True,
+    )
     print("", flush=True)
     clear_and_print(f"Now playing: {track_names[current_track]}", newline=False)
 

@@ -54,7 +54,9 @@ Run the switcher:
 python ab_switcher.py A.wav B.wav
 #+end_src
 
-Press =SPACE= to toggle between Track A and Track B.
+Press =SPACE= or =↑= to move to the next track.
+Press =↓= to move to the previous track.
+Press =←= and =→= to seek the playback 5 seconds backward or forward.
 Press =ESC= to exit the program.
 
 * Useful Scripts
