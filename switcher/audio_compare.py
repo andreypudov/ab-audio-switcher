@@ -1,29 +1,15 @@
 import os
-import threading
 
 import numpy as np
 import sounddevice as sd
 from pynput import keyboard
 
 from .audio_loader import load_audio_ffmpeg
+from .playback_status import PlaybackStatusDisplay
 from .terminal_utils import clear_and_print, disable_echo, restore_terminal, flush_input
 
 
 SEEK_SECONDS = 3
-
-
-def _format_elapsed_time(playback_position: int, samplerate: int) -> str:
-    """Format playback position as H:MM:SS or MM:SS."""
-    if samplerate <= 0:
-        return "00:00"
-
-    total_seconds = max(0, int(playback_position / samplerate))
-    hours, rem = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(rem, 60)
-
-    if hours > 0:
-        return f"{hours}:{minutes:02d}:{seconds:02d}"
-    return f"{minutes:02d}:{seconds:02d}"
 
 
 def _build_looped_chunk(
@@ -209,23 +195,14 @@ def compare_audio_files(
     current_track = 0
     playback_position = 0
     loop_length = min(len(track) for track in tracks)
-    stop_requested = False
-    status_stop_event = threading.Event()
-    status_lock = threading.Lock()
-
-    def render_status_line() -> None:
-        with status_lock:
-            elapsed = _format_elapsed_time(playback_position, samplerate)
-            clear_and_print(
-                f"Now playing: [{elapsed}] {track_names[current_track]}", newline=False
-            )
-
-    def status_updater() -> None:
-        while not status_stop_event.wait(0.25):
-            render_status_line()
+    status_display = PlaybackStatusDisplay(
+        samplerate=samplerate,
+        get_playback_position=lambda: playback_position,
+        get_track_name=lambda: track_names[current_track],
+    )
 
     def callback(outdata, frames, time, status):
-        nonlocal current_track, playback_position, stop_requested
+        nonlocal current_track, playback_position
 
         if status:
             print(f"Audio warning: {status}", file=os.sys.stderr)
@@ -241,17 +218,17 @@ def compare_audio_files(
         outdata[:] = chunk
 
     def on_press(key):
-        nonlocal current_track, playback_position, stop_requested
+        nonlocal current_track, playback_position
 
         try:
             if key == keyboard.Key.space or key == keyboard.Key.up:
                 current_track = _shift_track(current_track, 1, len(tracks))
-                render_status_line()
+                status_display.render()
                 return
 
             if key == keyboard.Key.down:
                 current_track = _shift_track(current_track, -1, len(tracks))
-                render_status_line()
+                status_display.render()
                 return
 
             if key == keyboard.Key.left:
@@ -262,7 +239,7 @@ def compare_audio_files(
                     loop_length=loop_length,
                     direction=-1,
                 )
-                render_status_line()
+                status_display.render()
                 return
 
             if key == keyboard.Key.right:
@@ -273,12 +250,11 @@ def compare_audio_files(
                     loop_length=loop_length,
                     direction=1,
                 )
-                render_status_line()
+                status_display.render()
                 return
 
             if key == keyboard.Key.esc:
                 clear_and_print("Exiting on Escape", newline=True)
-                stop_requested = True
                 listener.stop()
                 return False
         except AttributeError:
@@ -298,12 +274,11 @@ def compare_audio_files(
         flush=True,
     )
     print("", flush=True)
-    render_status_line()
+    status_display.render()
 
     # Terminal state helpers for suppressing local echo of pressed keys
     orig_term_attrs = None
     terminal_fd = None
-    status_thread = None
 
     try:
         # Before starting the listener, disable local terminal echo so
@@ -320,8 +295,7 @@ def compare_audio_files(
             dtype="float32",
         ):
             listener.start()
-            status_thread = threading.Thread(target=status_updater, daemon=True)
-            status_thread.start()
+            status_display.start()
             # Emit a newline immediately after starting the listener so any
             # external messages (e.g. macOS accessibility warnings) appear on
             # their own line instead of being appended to the status line.
@@ -336,9 +310,7 @@ def compare_audio_files(
         print(f"Playback error: {e}", file=os.sys.stderr)
         return 1
     finally:
-        status_stop_event.set()
-        if status_thread is not None:
-            status_thread.join(timeout=1.0)
+        status_display.stop()
 
         try:
             listener.stop()
