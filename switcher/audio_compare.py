@@ -1,4 +1,5 @@
 import os
+import threading
 
 import numpy as np
 import sounddevice as sd
@@ -9,6 +10,20 @@ from .terminal_utils import clear_and_print, disable_echo, restore_terminal, flu
 
 
 SEEK_SECONDS = 3
+
+
+def _format_elapsed_time(playback_position: int, samplerate: int) -> str:
+    """Format playback position as H:MM:SS or MM:SS."""
+    if samplerate <= 0:
+        return "00:00"
+
+    total_seconds = max(0, int(playback_position / samplerate))
+    hours, rem = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
 
 
 def _build_looped_chunk(
@@ -195,6 +210,19 @@ def compare_audio_files(
     playback_position = 0
     loop_length = min(len(track) for track in tracks)
     stop_requested = False
+    status_stop_event = threading.Event()
+    status_lock = threading.Lock()
+
+    def render_status_line() -> None:
+        with status_lock:
+            elapsed = _format_elapsed_time(playback_position, samplerate)
+            clear_and_print(
+                f"Now playing: [{elapsed}] {track_names[current_track]}", newline=False
+            )
+
+    def status_updater() -> None:
+        while not status_stop_event.wait(0.25):
+            render_status_line()
 
     def callback(outdata, frames, time, status):
         nonlocal current_track, playback_position, stop_requested
@@ -218,16 +246,12 @@ def compare_audio_files(
         try:
             if key == keyboard.Key.space or key == keyboard.Key.up:
                 current_track = _shift_track(current_track, 1, len(tracks))
-                clear_and_print(
-                    f"Now playing: {track_names[current_track]}", newline=False
-                )
+                render_status_line()
                 return
 
             if key == keyboard.Key.down:
                 current_track = _shift_track(current_track, -1, len(tracks))
-                clear_and_print(
-                    f"Now playing: {track_names[current_track]}", newline=False
-                )
+                render_status_line()
                 return
 
             if key == keyboard.Key.left:
@@ -238,9 +262,7 @@ def compare_audio_files(
                     loop_length=loop_length,
                     direction=-1,
                 )
-                clear_and_print(
-                    f"Now playing: {track_names[current_track]}", newline=False
-                )
+                render_status_line()
                 return
 
             if key == keyboard.Key.right:
@@ -251,9 +273,7 @@ def compare_audio_files(
                     loop_length=loop_length,
                     direction=1,
                 )
-                clear_and_print(
-                    f"Now playing: {track_names[current_track]}", newline=False
-                )
+                render_status_line()
                 return
 
             if key == keyboard.Key.esc:
@@ -278,11 +298,12 @@ def compare_audio_files(
         flush=True,
     )
     print("", flush=True)
-    clear_and_print(f"Now playing: {track_names[current_track]}", newline=False)
+    render_status_line()
 
     # Terminal state helpers for suppressing local echo of pressed keys
     orig_term_attrs = None
     terminal_fd = None
+    status_thread = None
 
     try:
         # Before starting the listener, disable local terminal echo so
@@ -299,6 +320,8 @@ def compare_audio_files(
             dtype="float32",
         ):
             listener.start()
+            status_thread = threading.Thread(target=status_updater, daemon=True)
+            status_thread.start()
             # Emit a newline immediately after starting the listener so any
             # external messages (e.g. macOS accessibility warnings) appear on
             # their own line instead of being appended to the status line.
@@ -313,6 +336,10 @@ def compare_audio_files(
         print(f"Playback error: {e}", file=os.sys.stderr)
         return 1
     finally:
+        status_stop_event.set()
+        if status_thread is not None:
+            status_thread.join(timeout=1.0)
+
         try:
             listener.stop()
         except Exception:
