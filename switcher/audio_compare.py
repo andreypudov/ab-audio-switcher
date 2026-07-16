@@ -4,7 +4,8 @@ import numpy as np
 import sounddevice as sd
 from pynput import keyboard
 
-from .audio_loader import load_audio_ffmpeg
+from .audio_device import build_output_stream_kwargs
+from .audio_loader import load_audio_ffmpeg, probe_audio_ffmpeg
 from .playback_status import PlaybackStatusDisplay
 from .terminal_utils import clear_and_print, disable_echo, restore_terminal, flush_input
 
@@ -147,14 +148,14 @@ def _validate_tracks(tracks: list[np.ndarray], files: list[str]) -> None:
 
 
 def compare_audio_files(
-    files: list[str], samplerate: int = 44100, channels: int = 2
+    files: list[str], samplerate: int | None = None, channels: int | None = None
 ) -> int:
     """Compare multiple audio files interactively with instant A/B switching.
 
     Args:
         files: List of audio file paths to compare
-        samplerate: Target sample rate in Hz
-        channels: Number of audio channels
+        samplerate: Target sample rate in Hz. If None, use source rate.
+        channels: Number of audio channels. If None, use source channels.
 
     Returns:
         Exit code (0 for success)
@@ -167,14 +168,42 @@ def compare_audio_files(
     if invalid_files:
         raise FileNotFoundError(f"Files not found: {', '.join(invalid_files)}")
 
+    stream_samplerate = samplerate
+    stream_channels = channels
+    if stream_samplerate is None or stream_channels is None:
+        first_samplerate, first_channels = probe_audio_ffmpeg(files[0])
+        stream_samplerate = (
+            first_samplerate if stream_samplerate is None else stream_samplerate
+        )
+        stream_channels = first_channels if stream_channels is None else stream_channels
+
+        # If native mode is requested (samplerate/channels are None), require all
+        # tracks to match to avoid hidden resampling/remixing.
+        for path in files[1:]:
+            file_samplerate, file_channels = probe_audio_ffmpeg(path)
+            if samplerate is None and file_samplerate != stream_samplerate:
+                raise ValueError(
+                    "Bit-perfect playback requires matching sample rates across all files. "
+                    f"Expected {stream_samplerate} Hz, got {file_samplerate} Hz in {path}."
+                )
+            if channels is None and file_channels != stream_channels:
+                raise ValueError(
+                    "Bit-perfect playback requires matching channel counts across all files. "
+                    f"Expected {stream_channels} channels, got {file_channels} in {path}."
+                )
+
     print("Loading audio...")
     tracks = []
     for path in files:
         try:
             print(f"Loading {os.path.basename(path)}", end="", flush=True)
-            track = load_audio_ffmpeg(path, samplerate=samplerate, channels=channels)
+            track = load_audio_ffmpeg(
+                path,
+                samplerate=stream_samplerate,
+                channels=stream_channels,
+            )
             tracks.append(track)
-            duration = track.shape[0] / samplerate
+            duration = track.shape[0] / stream_samplerate
             print(f" [OK] ({duration:.2f}s)", flush=True)
         except FileNotFoundError as e:
             print(" [ERR]", flush=True)
@@ -190,13 +219,19 @@ def compare_audio_files(
     _validate_tracks(tracks, files)
 
     print(f"\nSuccessfully loaded {len(tracks)} track(s)")
+    stream_kwargs, output_mode_message = build_output_stream_kwargs(
+        samplerate=stream_samplerate,
+        channels=stream_channels,
+    )
+    if output_mode_message:
+        print(output_mode_message, flush=True)
 
     track_names = [os.path.basename(path) for path in files]
     current_track = 0
     playback_position = 0
     loop_length = min(len(track) for track in tracks)
     status_display = PlaybackStatusDisplay(
-        samplerate=samplerate,
+        samplerate=stream_samplerate,
         get_playback_position=lambda: playback_position,
         get_track_name=lambda: track_names[current_track],
     )
@@ -234,7 +269,7 @@ def compare_audio_files(
             if key == keyboard.Key.left:
                 playback_position = _seek_playback_position(
                     playback_position,
-                    samplerate,
+                    stream_samplerate,
                     seconds=SEEK_SECONDS,
                     loop_length=loop_length,
                     direction=-1,
@@ -245,7 +280,7 @@ def compare_audio_files(
             if key == keyboard.Key.right:
                 playback_position = _seek_playback_position(
                     playback_position,
-                    samplerate,
+                    stream_samplerate,
                     seconds=SEEK_SECONDS,
                     loop_length=loop_length,
                     direction=1,
@@ -289,10 +324,8 @@ def compare_audio_files(
         terminal_fd, orig_term_attrs = disable_echo()
 
         with sd.OutputStream(
-            samplerate=samplerate,
-            channels=channels,
             callback=callback,
-            dtype="float32",
+            **stream_kwargs,
         ):
             listener.start()
             status_display.start()
