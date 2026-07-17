@@ -38,7 +38,13 @@ class PlaybackStatusDisplay:
         self._thread: threading.Thread | None = None
 
     def render(self) -> None:
+        if self._stop_event.is_set():
+            return
+
         with self._render_lock:
+            if self._stop_event.is_set():
+                return
+
             elapsed = format_elapsed_time(
                 self._get_playback_position(),
                 self._samplerate,

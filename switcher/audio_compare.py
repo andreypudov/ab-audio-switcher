@@ -235,6 +235,7 @@ def compare_audio_files(
         get_playback_position=lambda: playback_position,
         get_track_name=lambda: track_names[current_track],
     )
+    is_exiting = False
 
     def callback(outdata, frames, time, status):
         nonlocal current_track, playback_position
@@ -253,9 +254,12 @@ def compare_audio_files(
         outdata[:] = chunk
 
     def on_press(key):
-        nonlocal current_track, playback_position
+        nonlocal current_track, playback_position, is_exiting
 
         try:
+            if is_exiting:
+                return
+
             if key == keyboard.Key.space or key == keyboard.Key.up:
                 current_track = _shift_track(current_track, 1, len(tracks))
                 status_display.render()
@@ -289,7 +293,9 @@ def compare_audio_files(
                 return
 
             if key == keyboard.Key.esc:
-                clear_and_print("Exiting on Escape", newline=True)
+                is_exiting = True
+                status_display.stop()
+                clear_and_print("Quitting...", newline=True)
                 listener.stop()
                 return False
         except AttributeError:
@@ -338,7 +344,9 @@ def compare_audio_files(
                 pass
             listener.join()
     except KeyboardInterrupt:
-        clear_and_print("Exiting on Ctrl-C", newline=True)
+        is_exiting = True
+        status_display.stop()
+        clear_and_print("Quitting...", newline=True)
     except Exception as e:
         print(f"Playback error: {e}", file=os.sys.stderr)
         return 1
